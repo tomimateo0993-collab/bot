@@ -2,7 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const app = express().use(express.json());
 
-// Token de verificación para Meta
+// Token de verificacion para Meta
 const VERIFY_TOKEN = "mi_secreto_123"; 
 
 app.post("/webhook", async (req, res) => {
@@ -18,11 +18,11 @@ app.post("/webhook", async (req, res) => {
     const datos = text.split(",").map(item => item.trim());
 
     if (lowerText === "hola" || lowerText === "ayuda" || datos.length < 6) {
-      const instrucciones = `*🚛 Asistente Dinatec*\n\nPara registrar un servicio, envía los datos separados por comas en este orden:\n\n_Cliente, Vehículo, Fecha Retiro, Dirección Retiro, Fecha Devolución, Dirección Devolución, Observaciones_\n\n*Ejemplo:*\n_Juan Perez, Toyota Hilux, 18/03/2026, Sede Central, 20/03/2026, Taller Salta, Sin novedades_`;
+      const instrucciones = `*🚛 Asistente Dinatec*\n\nPara registrar un servicio, envia los datos separados por comas en este orden:\n\n_Cliente, Vehiculo, Fecha Retiro, Direccion Retiro, Fecha Devolucion, Direccion Devolucion, Observaciones_\n\n*Ejemplo:*\n_Juan Perez, Toyota Hilux, 18/03/2026, Sede Central, 20/03/2026, Taller Salta, Sin novedades_`;
       await enviarWhatsApp(from, instrucciones);
     } 
     else {
-      // 2. Procesar y enviar a Airtable
+      // 2. Procesar y enviar a Airtable (CAMPOS SIN TILDES)
       try {
         await axios.post(
           `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${process.env.AIRTABLE_TABLE_NAME}`,
@@ -31,9 +31,9 @@ app.post("/webhook", async (req, res) => {
               "Clientes": datos[0],
               "Vehiculos": datos[1],
               "Fecha de Retiro": datos[2],
-              "Dirección de Retiro": datos[3],
+              "Direccion de Retiro": datos[3],
               "Fecha de Devolucion": datos[4],
-              "Dirección de Devolucion": datos[5],
+              "Direccion de Devolucion": datos[5],
               "Observaciones": datos[6] || "Sin observaciones",
               "Telefono": from
             }
@@ -45,10 +45,10 @@ app.post("/webhook", async (req, res) => {
             } 
           }
         );
-        await enviarWhatsApp(from, "✅ *¡Registro Exitoso!*\nLos datos se han cargado correctamente en el sistema de Gestión de Flota.");
+        await enviarWhatsApp(from, "✅ *¡Registro Exitoso!*\nLos datos se han cargado correctamente en el sistema de Gestion de Flota.");
       } catch (err) {
         console.error("Error Airtable:", err.response?.data || err.message);
-        await enviarWhatsApp(from, "❌ *Error de sistema.*\nHubo un problema al guardar en Airtable. Verifica que los nombres de las columnas sean correctos.");
+        await enviarWhatsApp(from, "❌ *Error de sistema.*\nHubo un problema al guardar en Airtable. Verifica que los nombres de las columnas en Airtable NO tengan tildes.");
       }
     }
   }
