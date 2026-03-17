@@ -2,72 +2,77 @@ const express = require("express");
 const axios = require("axios");
 const app = express().use(express.json());
 
-// Configuraciones desde Variables de Entorno (las pondremos en Render)
-const AIRTABLE_TOKEN = process.env.AIRTABLE_TOKEN;
-const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
-const AIRTABLE_TABLE_NAME = process.env.AIRTABLE_TABLE_NAME;
+// Token de verificación para Meta
 const VERIFY_TOKEN = "mi_secreto_123"; 
 
-// Verificación del Webhook
-app.get("/webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
-  }
-});
-
-// Recepción y procesamiento del mensaje
 app.post("/webhook", async (req, res) => {
-  try {
-    const body = req.body;
-    
-    if (body.object === "whatsapp_business_account" && 
-        body.entry?.[0].changes?.[0].value.messages?.[0]) {
-      
-      const message = body.entry[0].changes[0].value.messages[0];
-      const text = message.text.body; // El texto que envió el usuario
-      const from = message.from; // El teléfono del usuario
+  const body = req.body;
+  const message = body.entry?.[0].changes?.[0].value.messages?.[0];
 
-      // LÓGICA DE EXTRACCIÓN SIMPLE:
-      // Esperamos: "Nombre Apellido Status" (ej: Juan Perez Activo)
-      const partes = text.split(" ");
-      
-      if (partes.length >= 3) {
-        const nombre = partes[0];
-        const apellido = partes[1];
-        const status = partes[2];
+  if (message) {
+    const from = message.from;
+    const text = message.text.body.trim();
+    const lowerText = text.toLowerCase();
 
-        // ENVIAR A AIRTABLE
+    // 1. Detectar si el usuario pide ayuda o el formato es incorrecto
+    const datos = text.split(",").map(item => item.trim());
+
+    if (lowerText === "hola" || lowerText === "ayuda" || datos.length < 6) {
+      const instrucciones = `*🚛 Asistente Dinatec*\n\nPara registrar un servicio, envía los datos separados por comas en este orden:\n\n_Cliente, Vehículo, Fecha Retiro, Dirección Retiro, Fecha Devolución, Dirección Devolución, Observaciones_\n\n*Ejemplo:*\n_Juan Perez, Toyota Hilux, 18/03/2026, Sede Central, 20/03/2026, Taller Salta, Sin novedades_`;
+      await enviarWhatsApp(from, instrucciones);
+    } 
+    else {
+      // 2. Procesar y enviar a Airtable
+      try {
         await axios.post(
-          `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_NAME}`,
+          `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${process.env.AIRTABLE_TABLE_NAME}`,
           {
             fields: {
-              "Nombre": nombre,
-              "Apellido": apellido,
-              "Status": status,
-              "Telefono": from // Opcional: agrega esta columna en Airtable si quieres
+              "Clientes": datos[0],
+              "Vehiculos": datos[1],
+              "Fecha de Retiro": datos[2],
+              "Dirección de Retiro": datos[3],
+              "Fecha de Devolucion": datos[4],
+              "Dirección de Devolucion": datos[5],
+              "Observaciones": datos[6] || "Sin observaciones",
+              "Telefono": from
             }
           },
-          {
-            headers: {
-              Authorization: `Bearer ${AIRTABLE_TOKEN}`,
+          { 
+            headers: { 
+              Authorization: `Bearer ${process.env.AIRTABLE_TOKEN}`,
               "Content-Type": "application/json"
-            }
+            } 
           }
         );
-        console.log(`Guardado con éxito: ${nombre} ${apellido}`);
+        await enviarWhatsApp(from, "✅ *¡Registro Exitoso!*\nLos datos se han cargado correctamente en el sistema de Gestión de Flota.");
+      } catch (err) {
+        console.error("Error Airtable:", err.response?.data || err.message);
+        await enviarWhatsApp(from, "❌ *Error de sistema.*\nHubo un problema al guardar en Airtable. Verifica que los nombres de las columnas sean correctos.");
       }
     }
-    res.sendStatus(200);
-  } catch (error) {
-    console.error("Error procesando:", error.response?.data || error.message);
-    res.sendStatus(200); // Siempre respondemos 200 a Meta para que no reintente
   }
+  res.sendStatus(200);
 });
 
-app.listen(process.env.PORT || 3000, () => console.log("Bot listo"));
+async function enviarWhatsApp(to, text) {
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${process.env.PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: to,
+        type: "text",
+        text: { body: text }
+      },
+      { headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` } }
+    );
+  } catch (e) { console.log("Error API WhatsApp:", e.message); }
+}
+
+app.get("/webhook", (req, res) => {
+  if (req.query["hub.verify_token"] === VERIFY_TOKEN) res.status(200).send(req.query["hub.challenge"]);
+  else res.sendStatus(403);
+});
+
+app.listen(process.env.PORT || 3000, () => console.log("Bot Dinatec Online"));
